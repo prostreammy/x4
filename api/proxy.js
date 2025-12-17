@@ -1,6 +1,7 @@
 export default async function handler(req, res) {
-    // The original stream URL
     const targetUrl = "https://load.perfecttv.net/mpd/bola1/manifest.mpd?username=vip_r92bmh1k&password=yb3IpqrB&channel=bola1hd";
+    // This is the base path where the actual video segments (.m4s) live
+    const baseVideoUrl = "https://load.perfecttv.net/mpd/bola1/";
 
     try {
         const response = await fetch(targetUrl, {
@@ -9,15 +10,19 @@ export default async function handler(req, res) {
             }
         });
 
-        const data = await response.text();
+        let data = await response.text();
 
-        // Set CORS headers so your HTML can read the response
+        // FIX: Inject the BaseURL into the MPD XML so the player knows 
+        // to fetch segments from the original server, not from your Vercel /api/
+        const baseUrlTag = `<BaseURL>${baseVideoUrl}</BaseURL>`;
+        if (!data.includes('<BaseURL>')) {
+            data = data.replace('<Period', `${baseUrlTag}<Period`);
+        }
+
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET');
         res.setHeader('Content-Type', 'application/dash+xml');
-
         res.status(200).send(data);
     } catch (error) {
-        res.status(500).json({ error: "Failed to fetch manifest" });
+        res.status(500).send("Error fetching manifest");
     }
 }
