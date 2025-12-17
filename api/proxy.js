@@ -8,14 +8,19 @@ export default async function handler(req, res) {
             }
         });
 
-        const data = await response.text();
+        let data = await response.text();
+
+        // OPTIMIZATION: Force a longer delay (20s) to ensure chunks are fully ready 
+        // before the player tries to download them. Reduces "Content Download" lag.
+        data = data.replace(/suggestedPresentationDelay="PT\d+S"/g, 'suggestedPresentationDelay="PT20S"');
+        data = data.replace(/minBufferTime="PT\d+(\.\d+)?S"/g, 'minBufferTime="PT10S"');
 
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Content-Type', 'application/dash+xml');
-        res.setHeader('Cache-Control', 'no-store, max-age=0');
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
         
         res.status(200).send(data);
     } catch (error) {
-        res.status(500).send("Proxy error");
+        res.status(500).send("Proxy Error");
     }
 }
