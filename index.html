@@ -2,89 +2,60 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fixed High Performance Player</title>
-    <link rel="preconnect" href="https://load.perfecttv.net" crossorigin>
+    <title>Live Stream Fixed</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
     <style>
-        body { background: #000; color: #fff; font-family: sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
-        .player-wrapper { width: 95%; max-width: 1000px; }
-        video { width: 100%; border-radius: 8px; background: #000; }
-        .controls { margin-top: 15px; display: flex; gap: 10px; align-items: center; }
-        select { background: #222; color: white; border: 1px solid #444; padding: 5px; border-radius: 4px; }
+        body { background: #000; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        video { width: 90%; max-width: 1000px; background: #000; }
     </style>
 </head>
 <body>
-
-    <div class="player-wrapper">
-        <video id="video" controls autoplay muted></video>
-        <div class="controls">
-            <label>Quality:</label>
-            <select id="qualitySelect"><option value="auto">Auto (Adaptive)</option></select>
-        </div>
-    </div>
+    <video id="video" controls autoplay muted></video>
 
     <script>
         async function initPlayer() {
             const video = document.getElementById('video');
             const player = new shaka.Player(video);
-            const qualitySelect = document.getElementById('qualitySelect');
 
             player.configure({
                 streaming: {
-                    bufferingGoal: 15,
-                    rebufferingGoal: 2,
-                    retryParameters: { timeout: 10000, maxAttempts: 5 }
+                    bufferingGoal: 4,          // Minimal buffer for fast start
+                    rebufferingGoal: 1,        // Resume fast
+                    lowLatencyMode: true
                 },
-                manifest: { dash: { autoCorrectDrift: true } }
-            });
-
-            // THE FIX: Intercept every request and force the correct URI
-            player.getNetworkingEngine().registerRequestFilter((type, request) => {
-                const REAL_SOURCE_BASE = "https://load.perfecttv.net/mpd/bola1/";
-
-                if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
-                    // Force the manifest to go through your proxy
-                    request.uris = ["/api/proxy"];
-                } else {
-                    // For EVERYTHING else (segments, init files, etc.)
-                    let currentUri = request.uris[0];
-                    
-                    // If it's a relative path or pointing to your Vercel domain, rewrite it
-                    if (!currentUri.startsWith('http') || currentUri.includes(window.location.hostname)) {
-                        const fileName = currentUri.split('/').pop();
-                        // This ensures segments look like: https://load.perfecttv.net/mpd/bola1/init_1.mp4
-                        request.uris = [REAL_SOURCE_BASE + fileName];
+                manifest: {
+                    dash: {
+                        // IGNORE server-suggested 10-20s delay
+                        ignoreSuggestedPresentationDelay: true,
+                        autoCorrectDrift: true
                     }
                 }
             });
 
-            // Track handling for Quality Selector
-            player.addEventListener('variantchanged', () => {
-                const tracks = player.getVariantTracks();
-                if (qualitySelect.options.length <= 1) {
-                    tracks.sort((a, b) => b.height - a.height).forEach(track => {
-                        const option = document.createElement('option');
-                        option.value = track.id;
-                        option.text = `${track.height}p (${Math.round(track.bandwidth/1000)} kbps)`;
-                        qualitySelect.appendChild(option);
-                    });
-                }
-            });
-
-            qualitySelect.addEventListener('change', (e) => {
-                if (e.target.value === 'auto') {
-                    player.configure({ abr: { enabled: true } });
-                } else {
-                    player.configure({ abr: { enabled: false } });
-                    player.selectVariantTrack(player.getVariantTracks().find(t => t.id == e.target.value), true);
+            player.getNetworkingEngine().registerRequestFilter((type, request) => {
+                const BASE = "https://load.perfecttv.net/mpd/bola1/";
+                if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
+                    request.uris = ["/api/proxy"];
+                } else if (type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
+                    const uri = request.uris[0];
+                    if (!uri.startsWith('http') || uri.includes(window.location.hostname)) {
+                        request.uris = [BASE + uri.split('/').pop()];
+                    }
                 }
             });
 
             try {
                 await player.load('manifest.mpd');
+                
+                // FORCE JUMP TO LIVE EDGE
+                // This fixes the "Black Screen / No Playback" issue
+                const seekRange = player.seekRange();
+                video.currentTime = seekRange.end - 2; // Seek to 2s before the very end
+                
+                video.play();
+                console.log("Jumping to live edge:", seekRange.end);
             } catch (e) {
-                console.error("Error loading:", e);
+                console.error("Load Error:", e);
             }
         }
 
