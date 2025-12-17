@@ -2,58 +2,68 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>High Performance Player</title>
+    <title>High Performance Shaka</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
     <style>
         body { background: #000; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        video { width: 100%; max-width: 900px; background: #111; }
+        video { width: 100%; max-width: 1000px; background: #000; outline: none; }
     </style>
 </head>
 <body>
     <video id="video" controls autoplay></video>
 
     <script>
+        async function initApp() {
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                initPlayer();
+            } else {
+                console.error('Browser not supported!');
+            }
+        }
+
         async function initPlayer() {
             const video = document.getElementById('video');
             const player = new shaka.Player(video);
 
-            // 1. Optimization Config
             player.configure({
                 streaming: {
-                    bufferingGoal: 12,      // Larger buffer to absorb network spikes
+                    bufferingGoal: 15,
                     rebufferingGoal: 3,
-                    jumpLargeGaps: true
+                    bufferBehind: 30,
                 },
                 manifest: {
                     dash: { autoCorrectDrift: true }
                 }
             });
 
-            // 2. NETWORK FILTER (The Speed Fix)
             player.getNetworkingEngine().registerRequestFilter((type, request) => {
-                const PROXY_URL = "/api/proxy";
-                const ORIGIN_BASE = "https://load.perfecttv.net/mpd/bola1/";
+                // Change this to your actual Vercel domain if needed
+                const PROXY_PATH = "/api/proxy";
+                const REAL_SOURCE_BASE = "https://load.perfecttv.net/mpd/bola1/";
 
                 if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
-                    // Only the manifest goes through Vercel
-                    request.uris = [PROXY_URL];
+                    request.uris = [PROXY_PATH];
                 } else if (type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
-                    // Segments go DIRECTLY to the source server (Bypassing Vercel)
-                    // We manually fix the URL if it looks like a relative path
-                    if (!request.uris[0].startsWith('http')) {
-                        request.uris = [ORIGIN_BASE + request.uris[0]];
+                    // This forces every segment request (init.mp4, chunk.m4s) 
+                    // to go to the REAL server, not Vercel.
+                    let uri = request.uris[0];
+                    if (uri.includes(window.location.hostname) || !uri.startsWith('http')) {
+                        const fileName = uri.split('/').pop();
+                        request.uris = [REAL_SOURCE_BASE + fileName];
                     }
                 }
             });
 
             try {
-                // We start with a dummy string because the filter handles the real URL
                 await player.load('manifest.mpd');
+                console.log('Player loaded successfully');
             } catch (e) {
-                console.error("Load error", e);
+                console.error('Error loading manifest:', e);
             }
         }
-        document.addEventListener('DOMContentLoaded', initPlayer);
+
+        document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
 </html>
