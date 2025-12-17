@@ -2,51 +2,57 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Shaka Optimized Player</title>
+    <title>High Performance Player</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
     <style>
-        body { background: #000; color: #fff; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; }
-        .container { width: 100%; max-width: 900px; text-align: center; }
-        video { width: 100%; border: 1px solid #333; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        body { background: #000; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        video { width: 100%; max-width: 900px; background: #111; }
     </style>
 </head>
 <body>
-
-    <div class="container">
-        <h3>Bola 1 HD - Shaka Mode</h3>
-        <video id="video" controls autoplay></video>
-    </div>
+    <video id="video" controls autoplay></video>
 
     <script>
         async function initPlayer() {
             const video = document.getElementById('video');
             const player = new shaka.Player(video);
 
-            // 1. Configure for Low Latency and Stability
+            // 1. Optimization Config
             player.configure({
                 streaming: {
-                    lowLatencyMode: true,
-                    bufferingGoal: 6,         // Keep 6 seconds buffered
-                    rebufferingGoal: 2,       // Start playing once 2 seconds are ready
-                    retryParameters: {
-                        maxAttempts: 5,
-                        baseDelay: 1000
+                    bufferingGoal: 12,      // Larger buffer to absorb network spikes
+                    rebufferingGoal: 3,
+                    jumpLargeGaps: true
+                },
+                manifest: {
+                    dash: { autoCorrectDrift: true }
+                }
+            });
+
+            // 2. NETWORK FILTER (The Speed Fix)
+            player.getNetworkingEngine().registerRequestFilter((type, request) => {
+                const PROXY_URL = "/api/proxy";
+                const ORIGIN_BASE = "https://load.perfecttv.net/mpd/bola1/";
+
+                if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
+                    // Only the manifest goes through Vercel
+                    request.uris = [PROXY_URL];
+                } else if (type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
+                    // Segments go DIRECTLY to the source server (Bypassing Vercel)
+                    // We manually fix the URL if it looks like a relative path
+                    if (!request.uris[0].startsWith('http')) {
+                        request.uris = [ORIGIN_BASE + request.uris[0]];
                     }
                 }
             });
 
-            // 2. Handle Errors
-            player.addEventListener('error', (event) => console.error('Error code', event.detail.code, 'object', event.detail));
-
-            // 3. Load the Proxy URL
             try {
-                await player.load('/api/proxy');
-                console.log('The video has now been loaded!');
+                // We start with a dummy string because the filter handles the real URL
+                await player.load('manifest.mpd');
             } catch (e) {
-                console.error('Error loading video', e);
+                console.error("Load error", e);
             }
         }
-
         document.addEventListener('DOMContentLoaded', initPlayer);
     </script>
 </body>
