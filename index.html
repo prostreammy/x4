@@ -2,68 +2,107 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>High Performance Shaka</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Optimized Player</title>
+    <link rel="preconnect" href="https://load.perfecttv.net" crossorigin>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
     <style>
-        body { background: #000; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        video { width: 100%; max-width: 1000px; background: #000; outline: none; }
+        body { background: #000; color: #fff; font-family: sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        .player-wrapper { width: 95%; max-width: 1000px; position: relative; }
+        video { width: 100%; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); background: #111; }
+        .controls { margin-top: 15px; display: flex; gap: 10px; align-items: center; }
+        select { background: #222; color: white; border: 1px solid #444; padding: 5px 10px; border-radius: 4px; outline: none; cursor: pointer; }
+        .status { font-size: 12px; color: #888; margin-top: 5px; }
     </style>
 </head>
 <body>
-    <video id="video" controls autoplay></video>
+
+    <div class="player-wrapper">
+        <video id="video" controls autoplay muted></video>
+        
+        <div class="controls">
+            <label for="quality">Quality:</label>
+            <select id="qualitySelect">
+                <option value="auto">Auto (Adaptive)</option>
+            </select>
+            <span class="status" id="loadStatus">Status: Connecting...</span>
+        </div>
+    </div>
 
     <script>
-        async function initApp() {
-            shaka.polyfill.installAll();
-            if (shaka.Player.isBrowserSupported()) {
-                initPlayer();
-            } else {
-                console.error('Browser not supported!');
-            }
-        }
-
         async function initPlayer() {
             const video = document.getElementById('video');
             const player = new shaka.Player(video);
+            const status = document.getElementById('loadStatus');
+            const qualitySelect = document.getElementById('qualitySelect');
 
+            // 1. STABILITY & PERFORMANCE CONFIG
             player.configure({
                 streaming: {
-                    bufferingGoal: 15,
-                    rebufferingGoal: 3,
-                    bufferBehind: 30,
+                    bufferingGoal: 15,          // Larger buffer to handle slow "Content Download"
+                    rebufferingGoal: 2,         // Resume quickly
+                    lowLatencyMode: false,      // Disabled for maximum stability on slow routes
+                    retryParameters: { timeout: 8000, maxAttempts: 4 }
                 },
-                manifest: {
-                    dash: { autoCorrectDrift: true }
+                abr: {
+                    enabled: true,              // Auto-quality switching
+                    defaultBandwidthEstimate: 1500000 // Start at ~720p/480p
                 }
             });
 
+            // 2. NETWORK FILTER (Direct segments, Proxy manifest)
             player.getNetworkingEngine().registerRequestFilter((type, request) => {
-                // Change this to your actual Vercel domain if needed
-                const PROXY_PATH = "/api/proxy";
-                const REAL_SOURCE_BASE = "https://load.perfecttv.net/mpd/bola1/";
-
                 if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
-                    request.uris = [PROXY_PATH];
+                    request.uris = ["/api/proxy"];
                 } else if (type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
-                    // This forces every segment request (init.mp4, chunk.m4s) 
-                    // to go to the REAL server, not Vercel.
-                    let uri = request.uris[0];
-                    if (uri.includes(window.location.hostname) || !uri.startsWith('http')) {
+                    const uri = request.uris[0];
+                    if (!uri.startsWith('http')) {
                         const fileName = uri.split('/').pop();
-                        request.uris = [REAL_SOURCE_BASE + fileName];
+                        request.uris = ["https://load.perfecttv.net/mpd/bola1/" + fileName];
                     }
                 }
             });
 
+            // 3. QUALITY SELECTOR LOGIC
+            player.addEventListener('variantchanged', () => {
+                const tracks = player.getVariantTracks();
+                // Fill dropdown only once
+                if (qualitySelect.options.length <= 1) {
+                    tracks.forEach(track => {
+                        const option = document.createElement('option');
+                        option.value = track.id;
+                        option.text = `${track.height}p (${Math.round(track.bandwidth/1000)} kbps)`;
+                        qualitySelect.appendChild(option);
+                    });
+                }
+            });
+
+            qualitySelect.addEventListener('change', (e) => {
+                if (e.target.value === 'auto') {
+                    player.configure({ abr: { enabled: true } });
+                } else {
+                    player.configure({ abr: { enabled: false } });
+                    player.selectVariantTrack(player.getVariantTracks().find(t => t.id == e.target.value), true);
+                }
+            });
+
+            // 4. LOAD THE STREAM
             try {
                 await player.load('manifest.mpd');
-                console.log('Player loaded successfully');
+                status.innerText = "Status: Live";
+                console.log("Stream Loaded");
             } catch (e) {
-                console.error('Error loading manifest:', e);
+                status.innerText = "Status: Load Failed";
+                console.error("Error code", e.code, "object", e);
             }
         }
 
-        document.addEventListener('DOMContentLoaded', initApp);
+        document.addEventListener('DOMContentLoaded', () => {
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                initPlayer();
+            }
+        });
     </script>
 </body>
 </html>
