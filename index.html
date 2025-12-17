@@ -2,27 +2,52 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>CORS-Free Player</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dashjs/4.7.4/dash.all.min.js"></script>
+    <title>Shaka Optimized Player</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
     <style>
-        body { background: #000; color: #fff; text-align: center; font-family: sans-serif; }
-        video { width: 90%; max-width: 1000px; margin-top: 20px; border: 1px solid #444; }
+        body { background: #000; color: #fff; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; }
+        .container { width: 100%; max-width: 900px; text-align: center; }
+        video { width: 100%; border: 1px solid #333; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
     </style>
 </head>
 <body>
-    <h1>Bola 1 HD - Proxy Mode</h1>
-    <video id="videoPlayer" controls></video>
+
+    <div class="container">
+        <h3>Bola 1 HD - Shaka Mode</h3>
+        <video id="video" controls autoplay></video>
+    </div>
 
     <script>
-        (function() {
-            // Pointing to your Vercel Serverless Function
-            const url = "/api/proxy"; 
-            
-            const videoElement = document.querySelector("#videoPlayer");
-            const player = dashjs.MediaPlayer().create();
-            
-            player.initialize(videoElement, url, true);
-        })();
+        async function initPlayer() {
+            const video = document.getElementById('video');
+            const player = new shaka.Player(video);
+
+            // 1. Configure for Low Latency and Stability
+            player.configure({
+                streaming: {
+                    lowLatencyMode: true,
+                    bufferingGoal: 6,         // Keep 6 seconds buffered
+                    rebufferingGoal: 2,       // Start playing once 2 seconds are ready
+                    retryParameters: {
+                        maxAttempts: 5,
+                        baseDelay: 1000
+                    }
+                }
+            });
+
+            // 2. Handle Errors
+            player.addEventListener('error', (event) => console.error('Error code', event.detail.code, 'object', event.detail));
+
+            // 3. Load the Proxy URL
+            try {
+                await player.load('/api/proxy');
+                console.log('The video has now been loaded!');
+            } catch (e) {
+                console.error('Error loading video', e);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', initPlayer);
     </script>
 </body>
 </html>
