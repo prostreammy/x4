@@ -4,15 +4,23 @@ export default async function handler(req, res) {
     try {
         const response = await fetch(targetUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+                'Cache-Control': 'no-cache'
             }
         });
 
-        const data = await response.text();
+        let data = await response.text();
+
+        // Ensure the manifest is treated as a LIVE stream
+        // (Type="dynamic" is the DASH standard for Live)
+        if (!data.includes('type="dynamic"')) {
+            data = data.replace('type="static"', 'type="dynamic"');
+        }
 
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Content-Type', 'application/dash+xml');
-        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        // FORCE NO CACHE - Manifests update every few seconds!
+        res.setHeader('Cache-Control', 'no-store, max-age=0');
         
         res.status(200).send(data);
     } catch (error) {
